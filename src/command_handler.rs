@@ -1,6 +1,7 @@
 use super::EDITOR;
 use rustyline::error::ReadlineError;
 use std::fs::{File, OpenOptions};
+use std::io;
 use std::path::PathBuf;
 use std::process::Command;
 use std::{env, process::Stdio};
@@ -34,7 +35,49 @@ pub fn read_input() -> Result<String, ReadlineError> {
         }
     );
 
-    EDITOR.lock().unwrap().readline(&prompt)
+    let mut history_path = match dirs::home_dir() {
+        Some(path) => PathBuf::from(path),
+        None => {
+            eprintln!("Error: Unable to find home directory.");
+            return Err(ReadlineError::Io(io::Error::new(
+                io::ErrorKind::NotFound,
+                "Home directory not found",
+            )));
+        }
+    };
+    history_path.push(".mirshell_history");
+
+    // Create the history file if it doesn't exist
+    if let Err(err) = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .open(&history_path)
+    {
+        eprintln!("Error creating/opening history file: {:?}", err);
+        return Err(ReadlineError::Io(err));
+    }
+
+    let mut editor = EDITOR.lock().unwrap();
+
+    // Load history file
+    if let Err(err) = editor.load_history(&history_path) {
+        eprintln!("Error loading history: {:?}", err);
+    }
+
+    // Read the input line and store it in the history
+    let readline = editor.readline(&prompt);
+    if let Ok(ref line) = readline {
+        if !line.trim().is_empty() {
+            editor.add_history_entry(line.as_str());
+            // Save history
+            if let Err(err) = editor.save_history(&history_path) {
+                eprintln!("Error saving history: {:?}", err);
+            }
+        }
+    }
+
+    readline
 }
 
 fn shorten_path(path: &str) -> String {
