@@ -58,7 +58,7 @@ pub fn read_input() -> Result<String, ReadlineError> {
         return Err(ReadlineError::Io(err));
     }
 
-    let mut editor = EDITOR.lock().unwrap();
+    let mut editor = EDITOR.lock().expect("Unable to acquire editor lock.");
 
     // Load history file
     if let Err(err) = editor.load_history(&history_path) {

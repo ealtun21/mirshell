@@ -6,9 +6,20 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-rustyline = "8.0.0"
+rustyline = "8.2.0"
 termion = "1.5.6"
 lazy_static = "1.4.0"
 chrono = "0.4.24"
 whoami = "1.4.0"
 dirs = "5.0.0"
+
+[profile.dev]
+opt-level = 0
+
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.release]
+opt-level = 3
+strip = true
+panic = 'abort'
