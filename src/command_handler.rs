@@ -1,8 +1,9 @@
 use super::EDITOR;
 use rustyline::error::ReadlineError;
-use std::env;
+use std::fs::{File, OpenOptions};
 use std::path::PathBuf;
 use std::process::Command;
+use std::{env, process::Stdio};
 use termion::{color, terminal_size};
 
 pub fn read_input() -> Result<String, ReadlineError> {
@@ -53,18 +54,11 @@ fn shorten_path(path: &str) -> String {
 }
 
 pub fn handle_command(line: String) {
-    let (command, args) = parse_command(line.trim());
-    match command.as_str() {
-        "cd" => change_directory(&args),
-        _ => execute_command(&command, &args),
+    let (commands, redirects) = parse_command(line.trim());
+    match commands[0].0.as_str() {
+        "cd" => change_directory(&commands[0].1),
+        _ => execute_command(commands, redirects),
     }
-}
-
-fn parse_command(line: &str) -> (String, Vec<String>) {
-    let mut parts = line.split_whitespace().map(String::from);
-    let command = parts.next().unwrap_or_default();
-    let args = parts.collect::<Vec<String>>();
-    (command, args)
 }
 
 fn change_directory(args: &[String]) {
@@ -81,14 +75,100 @@ fn change_directory(args: &[String]) {
     }
 }
 
-fn execute_command(command: &str, args: &[String]) {
-    let child = Command::new(command).args(args).spawn();
+fn parse_command(line: &str) -> (Vec<(String, Vec<String>)>, Vec<(String, String)>) {
+    let mut tokens = line
+        .split_whitespace()
+        .map(String::from)
+        .collect::<Vec<String>>();
+    let mut command_parts = vec![];
+    let mut redirects = vec![];
 
-    match child {
-        Ok(mut child) => {
-            let _ = child.wait();
+    let mut current_command = vec![];
+
+    while !tokens.is_empty() {
+        let token = tokens.remove(0);
+        match token.as_str() {
+            "|" => {
+                if !current_command.is_empty() {
+                    command_parts.push(current_command);
+                    current_command = vec![];
+                }
+            }
+            ">" | ">>" | "<" => {
+                if let Some(target) = tokens.get(0).cloned() {
+                    redirects.push((token.clone(), target.clone()));
+                    tokens.remove(0);
+                }
+            }
+            _ => current_command.push(token),
         }
-        Err(e) => eprintln!("Error: {}", e),
+    }
+
+    if !current_command.is_empty() {
+        command_parts.push(current_command);
+    }
+
+    (
+        command_parts
+            .into_iter()
+            .map(|parts| {
+                (
+                    parts.first().cloned().unwrap_or_else(|| String::from("")),
+                    parts[1..].to_vec(),
+                )
+            })
+            .collect(),
+        redirects,
+    )
+}
+
+fn execute_command(commands: Vec<(String, Vec<String>)>, redirects: Vec<(String, String)>) {
+    let mut prev_stdout = None;
+    for (i, (command, args)) in commands.iter().enumerate() {
+        let mut cmd = Command::new(&command);
+        cmd.args(args);
+
+        if let Some(stdout) = prev_stdout.take() {
+            cmd.stdin(Stdio::from(stdout));
+        }
+
+        if i != commands.len() - 1 {
+            cmd.stdout(Stdio::piped());
+        }
+
+        for (op, target) in &redirects {
+            match op.as_str() {
+                ">" => {
+                    let file = File::create(target).expect("Failed to create file");
+                    cmd.stdout(Stdio::from(file));
+                }
+                ">>" => {
+                    let file = OpenOptions::new()
+                        .write(true)
+                        .append(true)
+                        .open(target)
+                        .expect("Failed to open file");
+                    cmd.stdout(Stdio::from(file));
+                }
+                "<" => {
+                    let file = File::open(target).expect("Failed to open file");
+                    cmd.stdin(Stdio::from(file));
+                }
+                _ => {}
+            }
+        }
+
+        let child = cmd.spawn();
+
+        match child {
+            Ok(mut child) => {
+                if i != commands.len() - 1 {
+                    prev_stdout = child.stdout.take();
+                }
+                let _ = child.wait();
+            }
+            Err(e) => eprintln!("Error: {}", e),
+        }
     }
 }
 
