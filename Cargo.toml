@@ -1,0 +1,13 @@
+[package]
+name = "mirshell"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+rustyline = "8.0.0"
+termion = "1.5.6"
+lazy_static = "1.4.0"
+chrono = "0.4.24"
+whoami = "1.4.0"
