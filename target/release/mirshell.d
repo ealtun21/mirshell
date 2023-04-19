@@ -1,1 +1,0 @@
-/home/nyverin/Projects/mirshell/target/release/mirshell: /home/nyverin/Projects/mirshell/src/command_handler.rs /home/nyverin/Projects/mirshell/src/main.rs /home/nyverin/Projects/mirshell/src/shell_completer.rs
