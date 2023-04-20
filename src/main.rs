@@ -8,6 +8,8 @@ use rustyline::{CompletionType, Config, EditMode, Editor};
 use shell_completer::ShellCompleter;
 use std::sync::Mutex;
 
+use crate::shell_completer::BinaryCompleter;
+
 lazy_static! {
     static ref EDITOR: Mutex<Editor<ShellCompleter>> = {
         let config = Config::builder()
@@ -16,6 +18,7 @@ lazy_static! {
             .build();
         let completer = ShellCompleter {
             filename_completer: FilenameCompleter::new(),
+            binary_completer: BinaryCompleter,
         };
         let mut editor = Editor::<ShellCompleter>::with_config(config);
         editor.set_helper(Some(completer));
