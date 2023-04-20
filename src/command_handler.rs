@@ -1,11 +1,20 @@
 use super::EDITOR;
+use lazy_static::lazy_static;
 use rustyline::error::ReadlineError;
+use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
-use std::io;
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::{Arc, Mutex};
 use std::{env, process::Stdio};
+use std::{io, process};
 use termion::{color, terminal_size};
+
+// Add a global variable to store child processes
+lazy_static! {
+    static ref CHILD_PROCESSES: Arc<Mutex<HashMap<u32, process::Child>>> =
+        Arc::new(Mutex::new(HashMap::new()));
+}
 
 pub fn read_input() -> Result<String, ReadlineError> {
     let current_path = env::current_dir().unwrap_or_default();
@@ -97,10 +106,20 @@ fn shorten_path(path: &str) -> String {
 }
 
 pub fn handle_command(line: String) {
-    let (commands, redirects) = parse_command(line.trim());
+    let (commands, redirects, is_background) = parse_command(line.trim());
+
+    // Update this match expression to handle "disown" command
     match commands[0].0.as_str() {
         "cd" => change_directory(&commands[0].1),
-        _ => execute_command(commands, redirects),
+        "disown" => {
+            let pid = commands[0]
+                .1
+                .first()
+                .map(|s| s.parse::<u32>().ok())
+                .flatten();
+            disown(pid);
+        }
+        _ => execute_command(commands, redirects, is_background),
     }
 }
 
@@ -118,11 +137,12 @@ fn change_directory(args: &[String]) {
     }
 }
 
-fn parse_command(line: &str) -> (Vec<(String, Vec<String>)>, Vec<(String, String)>) {
+fn parse_command(line: &str) -> (Vec<(String, Vec<String>)>, Vec<(String, String)>, bool) {
     let mut tokens = line
         .split_whitespace()
         .map(String::from)
         .collect::<Vec<String>>();
+    let mut is_background = false;
     let mut command_parts = vec![];
     let mut redirects = vec![];
 
@@ -136,6 +156,9 @@ fn parse_command(line: &str) -> (Vec<(String, Vec<String>)>, Vec<(String, String
                     command_parts.push(current_command);
                     current_command = vec![];
                 }
+            }
+            "&" => {
+                is_background = true;
             }
             ">" | ">>" | "<" => {
                 if let Some(target) = tokens.get(0).cloned() {
@@ -162,10 +185,15 @@ fn parse_command(line: &str) -> (Vec<(String, Vec<String>)>, Vec<(String, String
             })
             .collect(),
         redirects,
+        is_background,
     )
 }
 
-fn execute_command(commands: Vec<(String, Vec<String>)>, redirects: Vec<(String, String)>) {
+fn execute_command(
+    commands: Vec<(String, Vec<String>)>,
+    redirects: Vec<(String, String)>,
+    is_background: bool,
+) {
     let mut prev_stdout = None;
     for (i, (command, args)) in commands.iter().enumerate() {
         let mut cmd = Command::new(&command);
@@ -205,12 +233,37 @@ fn execute_command(commands: Vec<(String, Vec<String>)>, redirects: Vec<(String,
 
         match child {
             Ok(mut child) => {
-                if i != commands.len() - 1 {
-                    prev_stdout = child.stdout.take();
+                if is_background {
+                    let pid = child.id();
+                    println!("[{}] {}", pid, command);
+                    let mut child_processes = CHILD_PROCESSES.lock().unwrap();
+                    child_processes.insert(pid, child);
+                } else {
+                    if i != commands.len() - 1 {
+                        prev_stdout = child.stdout.take();
+                    }
+                    let _ = child.wait();
                 }
-                let _ = child.wait();
             }
             Err(e) => eprintln!("Error: {}", e),
+        }
+    }
+}
+
+fn disown(pid: Option<u32>) {
+    let mut child_processes = CHILD_PROCESSES.lock().unwrap();
+
+    match pid {
+        Some(pid) => {
+            if child_processes.remove(&pid).is_some() {
+                println!("Disowned process [{}]", pid);
+            } else {
+                eprintln!("Error: No such process [{}]", pid);
+            }
+        }
+        None => {
+            child_processes.clear();
+            println!("Disowned all background processes.");
         }
     }
 }
