@@ -66,8 +66,8 @@ fn complete_binaries(line: &str) -> Result<Vec<Pair>, ReadlineError> {
     for path in &paths {
         let entries = match fs::read_dir(path) {
             Ok(entries) => entries,
-            Err(e) => {
-                eprintln!("Error reading directory {}: {:?}", path, e);
+            Err(_e) => {
+                // eprintln!("Error reading directory {}: {:?}", path, e);
                 continue;
             }
         };
